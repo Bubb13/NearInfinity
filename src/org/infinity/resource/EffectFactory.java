@@ -2141,9 +2141,9 @@ public final class EffectFactory
       case 34: // Save vs. wand bonus / Reflex save bonus
       case 35: // Save vs. polymorph bonus / Will save bonus
         s.add(new DecNumber(buffer, offset, 4, "Value"));
-        if (isTobEx) {
+        if (isTobEx || Profile.isEnhancedEdition()) {
           s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", new String[]{
-              s_inctype[0], s_inctype[1], s_inctype[2], "Instantaneous"}));
+              s_inctype[0], s_inctype[1], s_inctype[2], "Increment instantaneously"}));
         } else {
           s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", s_inctype));
         }
@@ -2155,9 +2155,9 @@ public final class EffectFactory
           makeEffectParamsDefault(buffer, offset, s);
         } else {
           s.add(new DecNumber(buffer, offset, 4, "Value"));
-          if (isTobEx) {
+          if (isTobEx || Profile.isEnhancedEdition()) {
             s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", new String[]{
-                s_inctype[0], s_inctype[1], s_inctype[2], "Instantaneous"}));
+                s_inctype[0], s_inctype[1], s_inctype[2], "Increment instantaneously"}));
           } else {
             s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", s_inctype));
           }
@@ -2334,6 +2334,9 @@ public final class EffectFactory
       case 68: // Unsummon creature
         s.add(new Bitmap(buffer, offset, 4, "Display text?", s_noyes));
         s.add(new DecNumber(buffer, offset + 4, 4, AbstractStruct.COMMON_UNUSED));
+        if (Profile.isEnhancedEdition()) {
+          restype = "VEF:VVC:BAM";
+        }
         break;
 
       case 71: // Change gender
@@ -2809,7 +2812,7 @@ public final class EffectFactory
         s.add(new DecNumber(buffer, offset, 4, AbstractStruct.COMMON_UNUSED));
         if (Profile.isEnhancedEdition()) {
           s.add(new Bitmap(buffer, offset + 4, 4, "Mode", new String[]{"Default overlay", "Custom overlay"}));
-          restype = "VVC";
+          restype = "VVC:BAM";
         } else {
           s.add(new DecNumber(buffer, offset + 4, 4, AbstractStruct.COMMON_UNUSED));
         }
@@ -2823,7 +2826,7 @@ public final class EffectFactory
           s.add(new DecNumber(buffer, offset, 4, AbstractStruct.COMMON_UNUSED));
           if (Profile.isEnhancedEdition()) {
             s.add(new Bitmap(buffer, offset + 4, 4, "Mode", new String[]{"Default overlay", "Custom overlay"}));
-            restype = "VVC";
+            restype = "VVC:BAM";
           } else {
             s.add(new DecNumber(buffer, offset + 4, 4, AbstractStruct.COMMON_UNUSED));
           }
@@ -3727,10 +3730,19 @@ public final class EffectFactory
         break;
 
       case 323: // Turn undead level
-      case 325: // All saving throws bonus
         if (Profile.isEnhancedEdition()) {
           s.add(new DecNumber(buffer, offset, 4, "Value"));
           s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", s_inctype));
+        } else {
+          makeEffectParamsDefault(buffer, offset, s);
+        }
+        break;
+
+      case 325: // All saving throws bonus
+        if (Profile.isEnhancedEdition()) {
+          s.add(new DecNumber(buffer, offset, 4, "Value"));
+          s.add(new Bitmap(buffer, offset + 4, 4, "Modifier type", new String[]{
+              s_inctype[0], s_inctype[1], s_inctype[2], "Increment instantaneously"}));
         } else {
           makeEffectParamsDefault(buffer, offset, s);
         }
