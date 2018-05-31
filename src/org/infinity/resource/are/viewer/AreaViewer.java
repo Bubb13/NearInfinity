@@ -1413,7 +1413,9 @@ public class AreaViewer extends ChildFrame
         if (updateItemPopup(location)) {
           pmItems.show(parent, event.getX(), event.getY());
         } else {
-          DataMenuItem dmi = new DataMenuItem("Add Actor Here", null, 
+          DataMenuItem dmi = new DataMenuItem("Add Actor Here", 
+            //Icons.getIcon(ViewerIcons.class, ViewerIcons.ICON_BTN_ADD_ACTOR),
+            null,
             new BubbData(BubbData.BubbDataType.ADD_ACTOR, location));
           dmi.addActionListener(getListeners());
           pmItems.add(dmi);

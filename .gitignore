@@ -1,6 +1,6 @@
-NearInfinity.jar
 *.class
 /bin
 /build
 /.settings
 .vscode/launch.json
+BUILD.BAT
