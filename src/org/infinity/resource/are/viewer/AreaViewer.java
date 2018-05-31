@@ -32,6 +32,7 @@ import java.awt.image.VolatileImage;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
 import java.io.ByteArrayOutputStream;
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EventObject;
@@ -48,6 +49,7 @@ import javax.swing.JCheckBox;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
+import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JOptionPane;
 import javax.swing.JPanel;
@@ -80,6 +82,7 @@ import javax.swing.tree.TreeNode;
 import javax.swing.tree.TreePath;
 
 import org.infinity.NearInfinity;
+import org.infinity.datatype.DecNumber;
 import org.infinity.datatype.Flag;
 import org.infinity.datatype.ResourceRef;
 import org.infinity.datatype.SectionOffset;
@@ -101,14 +104,15 @@ import org.infinity.resource.AbstractStruct;
 import org.infinity.resource.Profile;
 import org.infinity.resource.Resource;
 import org.infinity.resource.ResourceFactory;
+import org.infinity.resource.are.Actor;
 import org.infinity.resource.are.AreResource;
 import org.infinity.resource.are.RestSpawn;
 import org.infinity.resource.are.Song;
 import org.infinity.resource.are.viewer.ViewerConstants.LayerStackingType;
 import org.infinity.resource.are.viewer.ViewerConstants.LayerType;
 import org.infinity.resource.are.viewer.icon.ViewerIcons;
-import org.infinity.resource.graphics.GraphicsResource;
 import org.infinity.resource.graphics.ColorConvert;
+import org.infinity.resource.graphics.GraphicsResource;
 import org.infinity.resource.key.BIFFResourceEntry;
 import org.infinity.resource.key.ResourceEntry;
 import org.infinity.resource.wed.Overlay;
@@ -156,6 +160,7 @@ public class AreaViewer extends ChildFrame
   private JLabel lPosX, lPosY;
   private JTextArea taInfo;
   private boolean bMapDragging;
+  private boolean mouseDragged;
   private Point mapDraggingPosStart, mapDraggingScrollStart, mapDraggingPos;
   private Timer timerOverlays;
   private JPopupMenu pmItems;
@@ -1341,12 +1346,36 @@ public class AreaViewer extends ChildFrame
                   } else {
                     sb.append(items[k].getQuickInfo());
                   }
-                  DataMenuItem dmi = new DataMenuItem(sb.toString(), null, items[k]);
-                  if (lenPrefix + lenMsg > MaxLen) {
-                    dmi.setToolTipText(items[k].getQuickInfo());
+                  String dataMenuItemString = sb.toString();
+                  LayerObject layerObject = layerManager.getLayerObjectOf(items[k]);
+                  if (!(layerObject instanceof LayerObjectActor)) {
+                    DataMenuItem dmi = new DataMenuItem(dataMenuItemString, null, items[k]);
+                    if (lenPrefix + lenMsg > MaxLen) {
+                      dmi.setToolTipText(items[k].getQuickInfo());
+                    }
+                    dmi.addActionListener(getListeners());
+                    menuItems.add(dmi);
+                  } else {
+                    DataMenuItem dmi = new DataMenuItem("Open Actor Structure", null, items[k]);
+                    if (lenPrefix + lenMsg > MaxLen) {
+                      dmi.setToolTipText(items[k].getQuickInfo());
+                    }
+                    dmi.addActionListener(getListeners());
+                    JMenu jMenu = new JMenu(dataMenuItemString); 
+                    jMenu.add(dmi);
+  
+                    DataMenuItem copyActor = new DataMenuItem("Clone Actor", null, 
+                      new BubbData(BubbData.BubbDataType.CLONE_ACTOR, items[k]));
+                    copyActor.addActionListener(getListeners());
+                    jMenu.add(copyActor);
+  
+                    DataMenuItem removeActor = new DataMenuItem("Remove Actor", null, 
+                      new BubbData(BubbData.BubbDataType.REMOVE_ACTOR, items[k]));
+                    removeActor.addActionListener(getListeners());
+                    jMenu.add(removeActor);
+
+                    menuItems.add(jMenu);
                   }
-                  dmi.addActionListener(getListeners());
-                  menuItems.add(dmi);
                 }
               }
             }
@@ -1382,6 +1411,12 @@ public class AreaViewer extends ChildFrame
 
       if (parent != null && location != null) {
         if (updateItemPopup(location)) {
+          pmItems.show(parent, event.getX(), event.getY());
+        } else {
+          DataMenuItem dmi = new DataMenuItem("Add Actor Here", null, 
+            new BubbData(BubbData.BubbDataType.ADD_ACTOR, location));
+          dmi.addActionListener(getListeners());
+          pmItems.add(dmi);
           pmItems.show(parent, event.getX(), event.getY());
         }
       }
@@ -2023,7 +2058,32 @@ public class AreaViewer extends ChildFrame
     });
   }
 
+  private void addActor(Actor actor)
+  {
+    map.getAre().addDatatype(actor); // Add to area
+    LayerActor actorLayer = (LayerActor)layerManager.getLayer(LayerType.ACTOR);
+    LayerObjectActor layerObjectActor = new LayerObjectAreActor(actorLayer.getAre(), actor);
+    actorLayer.setListeners(layerObjectActor);
+    actorLayer.getLayerObjects().add(layerObjectActor); // Add to actor layer
+    layerObjectActor.update(getZoomFactor()); // Update position
+    addLayerItem(LayerStackingType.ACTOR, layerObjectActor); // Add to canvas
+    if (isLayerEnabled(LayerStackingType.ACTOR)) {
+      layerObjectActor.setVisible(true);
+    }
+  }
 
+  private void removeActorFromLayerItem(AbstractLayerItem iconLayerItem)
+  {
+    LayerObjectActor layerObjectActor = (LayerObjectActor)layerManager.getLayerObjectOf(iconLayerItem);
+    Actor actor = (Actor)layerObjectActor.getViewable();
+    map.getAre().removeDatatype(actor, false); // Remove from area
+    LayerActor actorLayer = (LayerActor)layerManager.getLayer(LayerType.ACTOR);
+    actorLayer.getLayerObjects().remove(layerObjectActor); // Remove from actor layer
+    removeLayerItem(LayerStackingType.ACTOR, layerObjectActor); // Remove from canvas
+    layerObjectActor.close(); // Dispose of object
+    rcCanvas.repaint(); // Force a redraw of the canvas to delete the icon
+  }
+  
 //----------------------------- INNER CLASSES -----------------------------
 
   // Handles all events of the viewer
@@ -2173,13 +2233,47 @@ public class AreaViewer extends ChildFrame
           workerOverlays.addPropertyChangeListener(this);
           workerOverlays.execute();
         }
-      } else if (event.getSource() instanceof AbstractLayerItem) {
-        AbstractLayerItem item = (AbstractLayerItem)event.getSource();
-        showTable(item);
+      //} else if (event.getSource() instanceof AbstractLayerItem) {
+      //  AbstractLayerItem item = (AbstractLayerItem)event.getSource();
+      //  showTable(item);
       } else if (event.getSource() instanceof DataMenuItem) {
         DataMenuItem lmi = (DataMenuItem)event.getSource();
-        AbstractLayerItem item = (AbstractLayerItem)lmi.getData();
-        showTable(item);
+        Object lmiData = lmi.getData();
+        if (lmiData instanceof AbstractLayerItem) {
+          AbstractLayerItem item = (AbstractLayerItem)lmiData;
+          showTable(item);
+        } else if (lmiData instanceof BubbData) {
+          BubbData bubbData = (BubbData)lmiData;
+          if (bubbData.getDataType() == BubbData.BubbDataType.ADD_ACTOR) {
+            try {
+              Point visualPoint = (Point)bubbData.getData();
+              short physicalX = (short)(-0.5 + visualPoint.x / getZoomFactor());
+              short physicalY = (short)(-0.5 + visualPoint.y / getZoomFactor());
+              ByteBuffer actorBuffer = StreamUtils.getByteBuffer(272);
+              actorBuffer.putShort(32, physicalX);
+              actorBuffer.putShort(34, physicalY);
+              Actor actor = new Actor(actorBuffer);
+              addActor(actor);
+            }
+            catch (Exception e) {
+              e.printStackTrace();
+            }
+          } else if (bubbData.getDataType() == BubbData.BubbDataType.CLONE_ACTOR) {
+            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)bubbData.getData(); 
+            LayerObjectActor layerObjectActor = (LayerObjectActor)layerManager
+              .getLayerObjectOf(abstractLayerItem);
+            Actor actor = (Actor)layerObjectActor.getViewable();
+            try {
+              Actor newActor = (Actor)actor.clone();
+              addActor(newActor);
+            } catch (CloneNotSupportedException e) {
+              e.printStackTrace();
+            }
+          } else if (bubbData.getDataType() == BubbData.BubbDataType.REMOVE_ACTOR) {
+            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)bubbData.getData(); 
+            removeActorFromLayerItem(abstractLayerItem);
+          }
+        }
       } else if (event.getSource() == tbAre) {
         showTable(map.getAreItem());
       } else if (event.getSource() == tbWed) {
@@ -2228,8 +2322,31 @@ public class AreaViewer extends ChildFrame
     @Override
     public void mouseDragged(MouseEvent event)
     {
+      if (!mouseDragged) {
+        mouseDragged = true;
+      }
       if (event.getSource() == rcCanvas && isMapDragging(event.getLocationOnScreen())) {
         moveMapViewport();
+      } else if (event.getSource() instanceof AbstractLayerItem) {
+        AbstractLayerItem abstractLayerItem = (AbstractLayerItem)event.getSource();
+        LayerObject layerObject = layerManager.getLayerObjectOf(abstractLayerItem);
+        if (layerObject instanceof LayerObjectActor) {
+          Point visualLocation = abstractLayerItem.getLocation();
+          visualLocation.translate(event.getX(), event.getY());
+          if  (visualLocation.x >= 0 && visualLocation.x <= rcCanvas.getWidth() 
+            && visualLocation.y >= 0 && visualLocation.y <= rcCanvas.getHeight()) {
+            // Transform visual location into physical location
+            int physicalX = (int)(-0.5 + visualLocation.x / getZoomFactor());
+            int physicalY = (int)(-0.5 + visualLocation.y / getZoomFactor());
+            layerObject.getMapLocation().x = physicalX;
+            layerObject.getMapLocation().y = physicalY;
+            layerObject.update(getZoomFactor());
+            Actor actor = (Actor)layerObject.getViewable();
+            ((DecNumber)actor.getField(1)).setValue(physicalX); // Current X coordinate 
+            ((DecNumber)actor.getField(2)).setValue(physicalY); // Current Y coordinate
+            actor.setStructChanged(true);
+          }
+        }
       }
     }
 
@@ -2270,10 +2387,17 @@ public class AreaViewer extends ChildFrame
     @Override
     public void mouseReleased(MouseEvent event)
     {
-      if (event.getButton() == MouseEvent.BUTTON1 && event.getSource() == rcCanvas) {
-        setMapDraggingEnabled(false, event.getLocationOnScreen());
+      if (event.getButton() == MouseEvent.BUTTON1) {
+        if (event.getSource() == rcCanvas) {
+          setMapDraggingEnabled(false, event.getLocationOnScreen());
+        } else if (event.getSource() instanceof AbstractLayerItem && !mouseDragged) {
+          showTable((AbstractLayerItem)event.getSource());
+        }
       } else {
         showItemPopup(event);
+      }
+      if (mouseDragged) {
+        mouseDragged = false;
       }
     }
 
@@ -2540,6 +2664,29 @@ public class AreaViewer extends ChildFrame
     //--------------------- End Interface TreeExpansionListener ---------------------
   }
 
+  private static final class BubbData
+  {
+    private BubbDataType dataType;
+    private Object data;
+
+    public BubbData(BubbDataType dataType, Object data) {
+      this.dataType = dataType;
+      this.data = data;
+    }
+
+    public BubbDataType getDataType() {
+      return this.dataType;
+    }
+
+    public Object getData() {
+      return this.data;
+    }
+
+    public static enum BubbDataType
+    {
+      ADD_ACTOR, CLONE_ACTOR, REMOVE_ACTOR;
+    }
+  }
 
   // Handles map-specific properties
   private static class Map

@@ -85,6 +85,11 @@ public final class Actor extends AbstractStruct implements AddRemovable, HasView
     super(null, ARE_ACTOR, StreamUtils.getByteBuffer(272), 0);
   }
 
+  public Actor(ByteBuffer buffer) throws Exception
+  {
+    super(null, ARE_ACTOR, buffer, 0);
+  }
+
   public Actor(AbstractStruct superStruct, ByteBuffer buffer, int offset, int nr) throws Exception
   {
     super(superStruct, ARE_ACTOR + " " + nr, buffer, offset);

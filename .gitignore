@@ -3,3 +3,4 @@ NearInfinity.jar
 /bin
 /build
 /.settings
+.vscode/launch.json
