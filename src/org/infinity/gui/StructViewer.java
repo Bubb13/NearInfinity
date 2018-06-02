@@ -18,10 +18,14 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.ComponentEvent;
 import java.awt.event.ComponentListener;
+import java.awt.event.HierarchyEvent;
+import java.awt.event.HierarchyListener;
 import java.awt.event.ItemEvent;
 import java.awt.event.ItemListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.print.PageFormat;
 import java.awt.print.Printable;
 import java.awt.print.PrinterException;
@@ -158,6 +162,36 @@ public final class StructViewer extends JPanel implements ListSelectionListener,
   private boolean splitterSet;
   private int oldSplitterHeight;
   private Pair<Integer> storedSelection;
+  // Variables to keep track of parent window closing...
+  private Window ancestor;
+  private WindowAdapter windowClosingListener = new WindowAdapter() {
+    @Override
+    public void windowClosing(WindowEvent e) {
+      if (table.isEditing()) {
+        table.getCellEditor().stopCellEditing();
+      }
+    }
+  };
+  // Initialization block to attach new HierarchyListener to current StructViewer; HierarchyListener 
+  // used to attach the windowClosingListener to whatever Window we are (or will be) attached to.
+  // Should gracefully handle ancestor Window changes, though this is untested.
+  {
+    addHierarchyListener(new HierarchyListener() {
+      @Override
+      public void hierarchyChanged(HierarchyEvent e) {
+        if((e.getChangeFlags() & HierarchyEvent.PARENT_CHANGED) == HierarchyEvent.PARENT_CHANGED) {
+          if (ancestor != null) {
+            ancestor.removeWindowListener(windowClosingListener);
+          }
+          Window newAncestor = SwingUtilities.getWindowAncestor(StructViewer.this);
+          if (newAncestor != null) {
+            newAncestor.addWindowListener(windowClosingListener);
+          }
+          ancestor = newAncestor;
+        }
+      }
+    });
+  }
 
   private static JMenuItem createMenuItem(String cmd, String text, Icon icon, ActionListener l)
   {

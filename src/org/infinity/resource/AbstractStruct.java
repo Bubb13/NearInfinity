@@ -57,6 +57,7 @@ public abstract class AbstractStruct extends AbstractTableModel implements Struc
   private boolean structChanged;
   private int startoffset, endoffset, extraoffset;
   private Collection<Component> viewerComponents = null;
+  private HashMap<Object, StructChangedListener> structChangedListeners = new HashMap<>();
 
   private static void adjustEntryOffsets(AbstractStruct superStruct, AbstractStruct modifiedStruct,
                                          AddRemovable datatype, int amount)
@@ -190,6 +191,7 @@ public abstract class AbstractStruct extends AbstractTableModel implements Struc
   public Object clone() throws CloneNotSupportedException
   {
     AbstractStruct newstruct = (AbstractStruct)super.clone();
+    newstruct.structChangedListeners = new HashMap<Object, StructChangedListener>();
     newstruct.superStruct = null;
     newstruct.list = new ArrayList<StructEntry>(list.size());
     newstruct.viewer = null;
@@ -945,6 +947,15 @@ public abstract class AbstractStruct extends AbstractTableModel implements Struc
     structChanged = changed;
     if (superStruct != null)
       superStruct.setStructChanged(changed);
+    if (changed) {
+      Iterator<StructChangedListener> iterator = structChangedListeners.values().iterator();
+      while (iterator.hasNext()) {
+        StructChangedListener structChangedListener = iterator.next();
+        if (!structChangedListener.getSuppressed() && structChangedListener.structChanged()) {
+          iterator.remove();
+        }
+      }
+    }
   }
 
   public String toMultiLineString()
@@ -1150,6 +1161,17 @@ public abstract class AbstractStruct extends AbstractTableModel implements Struc
   protected void setSuperStruct(AbstractStruct struct)
   {
     this.superStruct = struct;
+  }
+
+  public HashMap<Object, StructChangedListener> getStructChangedListeners() {
+    return structChangedListeners;
+  }
+  
+  public static interface StructChangedListener
+  {
+    public boolean getSuppressed();
+    public void setSuppressed(boolean value);
+    public boolean structChanged();
   }
 }
 

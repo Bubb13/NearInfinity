@@ -5,10 +5,14 @@
 package org.infinity.resource.are.viewer;
 
 import java.awt.Point;
+import java.util.HashMap;
 
 import org.infinity.gui.layeritem.AbstractLayerItem;
 import org.infinity.gui.layeritem.IconLayerItem;
 import org.infinity.resource.AbstractStruct;
+import org.infinity.resource.Viewable;
+import org.infinity.resource.AbstractStruct.StructChangedListener;
+import org.infinity.resource.are.Actor;
 
 /**
  * Base class for layer type: Actor
@@ -30,6 +34,14 @@ public abstract class LayerObjectActor extends LayerObject
   {
     // TODO: implement method
     super.close();
+    Viewable viewable = getViewable();
+    if (viewable instanceof Actor) { // Sanity checks probably aren't needed, but why not. 
+      Actor actor = (Actor)viewable;
+      HashMap<Object, StructChangedListener> structChangeListeners = actor.getStructChangedListeners();
+      if (structChangeListeners.containsKey(this)) {
+        structChangeListeners.remove(this);
+      }
+    }
   }
 
   @Override

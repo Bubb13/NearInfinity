@@ -36,6 +36,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EventObject;
+import java.util.HashMap;
 import java.util.Hashtable;
 import java.util.List;
 import java.util.Locale;
@@ -101,9 +102,12 @@ import org.infinity.gui.layeritem.LayerItemEvent;
 import org.infinity.gui.layeritem.LayerItemListener;
 import org.infinity.icon.Icons;
 import org.infinity.resource.AbstractStruct;
+import org.infinity.resource.AbstractStruct.StructChangedListener;
+import org.infinity.resource.AddRemovable;
 import org.infinity.resource.Profile;
 import org.infinity.resource.Resource;
 import org.infinity.resource.ResourceFactory;
+import org.infinity.resource.Viewable;
 import org.infinity.resource.are.Actor;
 import org.infinity.resource.are.AreResource;
 import org.infinity.resource.are.RestSpawn;
@@ -1365,12 +1369,12 @@ public class AreaViewer extends ChildFrame
                     jMenu.add(dmi);
   
                     DataMenuItem copyActor = new DataMenuItem("Clone Actor", null, 
-                      new BubbData(BubbData.BubbDataType.CLONE_ACTOR, items[k]));
+                      new ActorChangeData(ActorChangeData.ActorChangeType.CLONE_ACTOR, items[k]));
                     copyActor.addActionListener(getListeners());
                     jMenu.add(copyActor);
   
                     DataMenuItem removeActor = new DataMenuItem("Remove Actor", null, 
-                      new BubbData(BubbData.BubbDataType.REMOVE_ACTOR, items[k]));
+                      new ActorChangeData(ActorChangeData.ActorChangeType.REMOVE_ACTOR, items[k]));
                     removeActor.addActionListener(getListeners());
                     jMenu.add(removeActor);
 
@@ -1416,7 +1420,7 @@ public class AreaViewer extends ChildFrame
           DataMenuItem dmi = new DataMenuItem("Add Actor Here", 
             //Icons.getIcon(ViewerIcons.class, ViewerIcons.ICON_BTN_ADD_ACTOR),
             null,
-            new BubbData(BubbData.BubbDataType.ADD_ACTOR, location));
+            new ActorChangeData(ActorChangeData.ActorChangeType.ADD_ACTOR, location));
           dmi.addActionListener(getListeners());
           pmItems.add(dmi);
           pmItems.show(parent, event.getX(), event.getY());
@@ -1722,6 +1726,16 @@ public class AreaViewer extends ChildFrame
         }
       } else if (layer == LayerStackingType.AMBIENT_RANGE) {
         AbstractLayerItem item = object.getLayerItem(ViewerConstants.AMBIENT_ITEM_RANGE);
+        if (item != null) {
+          rcCanvas.add(item);
+        }
+      } else if (layer == LayerStackingType.ACTOR) {
+        HashMap<Object, StructChangedListener> setValueAtListeners = ((Actor)object.getViewable())
+          .getStructChangedListeners();
+        if (!setValueAtListeners.containsKey(object)) {
+          setValueAtListeners.put(object, new StructChangedListenerActorUpdater((LayerObjectActor)object));
+        }
+        AbstractLayerItem item = object.getLayerItem();
         if (item != null) {
           rcCanvas.add(item);
         }
@@ -2060,32 +2074,84 @@ public class AreaViewer extends ChildFrame
     });
   }
 
-  private void addActor(Actor actor)
-  {
-    map.getAre().addDatatype(actor); // Add to area
-    LayerActor actorLayer = (LayerActor)layerManager.getLayer(LayerType.ACTOR);
-    LayerObjectActor layerObjectActor = new LayerObjectAreActor(actorLayer.getAre(), actor);
-    actorLayer.setListeners(layerObjectActor);
-    actorLayer.getLayerObjects().add(layerObjectActor); // Add to actor layer
-    layerObjectActor.update(getZoomFactor()); // Update position
-    addLayerItem(LayerStackingType.ACTOR, layerObjectActor); // Add to canvas
-    if (isLayerEnabled(LayerStackingType.ACTOR)) {
-      layerObjectActor.setVisible(true);
+  /**
+    * Adds an AddRemovable to the area and then does all the necessary actions required 
+    * to update the AreaViewer to reflect the newly added AddRemovable.
+    */
+  private void addStruct(AddRemovable addRemovable, LayerObject layerObject, LayerStackingType layerStackingType) {
+    getCurrentAre().addDatatype(addRemovable); // Add to area
+    addLayerObject(layerObject, layerStackingType);
+  }
+
+  /**
+    * Adds a LayerObject to the AreaViewer and then does all the necessary actions required 
+    * to update the AreaViewer to reflect the newly added LayerObject.
+    */
+  private void addLayerObject(LayerObject layerObject, LayerStackingType layerStackingType) {
+    // I know that the list objects extend LayerObject, and yet I have to do this
+    // ugly cast because the compiler is delusional.
+    BasicLayer<LayerObject> layer = (BasicLayer<LayerObject>)layerManager
+      .getLayer(Settings.stackingToLayer(layerStackingType));
+    layer.setListeners(layerObject);
+    layer.getLayerObjects().add(layerObject); // Add to layer
+    layerObject.update(getZoomFactor()); // Update position
+    addLayerItem(layerStackingType, layerObject); // Add to canvas
+    if (isLayerEnabled(layerStackingType)) {
+      layerObject.setVisible(true);
     }
   }
 
-  private void removeActorFromLayerItem(AbstractLayerItem iconLayerItem)
-  {
-    LayerObjectActor layerObjectActor = (LayerObjectActor)layerManager.getLayerObjectOf(iconLayerItem);
-    Actor actor = (Actor)layerObjectActor.getViewable();
-    map.getAre().removeDatatype(actor, false); // Remove from area
-    LayerActor actorLayer = (LayerActor)layerManager.getLayer(LayerType.ACTOR);
-    actorLayer.getLayerObjects().remove(layerObjectActor); // Remove from actor layer
-    removeLayerItem(LayerStackingType.ACTOR, layerObjectActor); // Remove from canvas
-    layerObjectActor.close(); // Dispose of object
-    rcCanvas.repaint(); // Force a redraw of the canvas to delete the icon
+   /**
+     * Updates a LayerObject so that it reflects any changes made to its resource structure,
+     * (actually removes, reloads, then adds back the LayerObject)
+     */
+  private void updateLayerObject(LayerObject layerObject, LayerStackingType layerType) {
+    // I know that the list objects extend LayerObject, and yet I have to do this
+    // ugly cast because the compiler is delusional.
+    BasicLayer<LayerObject> layer = (BasicLayer<LayerObject>)layerManager
+      .getLayer(Settings.stackingToLayer(layerType)); 
+    layer.getLayerObjects().remove(layerObject); // Remove from layer
+    removeLayerItem(layerType, layerObject); // Remove from canvas
+    layerObject.reload();
+    layer.setListeners(layerObject);
+    layer.getLayerObjects().add(layerObject); // Add to layer
+    layerObject.update(getZoomFactor()); // Update position
+    addLayerItem(layerType, layerObject); // Add to canvas
+    if (isLayerEnabled(layerType)) {
+      layerObject.setVisible(true);
+    }
+    rcCanvas.repaint(); // To undraw the icon from the canvas
+    rcCanvas.revalidate(); // To redraw the icon to the canvas
   }
-  
+
+  /**
+    * Removes an AddRemovable from the area (using an AbstractLayerItem reference) and then does 
+    * all the necessary actions required to update the AreaViewer to reflect the recently removed AddRemovable.
+    */
+  private void removeStructFromLayerItem(AbstractLayerItem iconLayerItem, LayerStackingType layerStackingType) {
+    LayerObject layerObject = layerManager.getLayerObjectOf(iconLayerItem);
+    removeStructFromLayerObject(layerObject, layerStackingType);
+  }
+
+  /**
+    * Removes an AddRemovable from the area (using an LayerObject reference) and then does 
+    * all the necessary actions required to update the AreaViewer to reflect the recently removed AddRemovable.
+    */
+  private void removeStructFromLayerObject(LayerObject layerObject, LayerStackingType layerStackingType)
+  {
+    Viewable layerObjectViewable = layerObject.getViewable();
+    if (layerObjectViewable instanceof AddRemovable) {
+      AddRemovable addRemovable = (AddRemovable)layerObjectViewable;
+      getCurrentAre().removeDatatype(addRemovable, false); // Remove from area
+      BasicLayer<LayerObject> layer = (BasicLayer<LayerObject>)layerManager
+        .getLayer(Settings.stackingToLayer(layerStackingType));
+      layer.getLayerObjects().remove(layerObject); // Remove from layer
+      removeLayerItem(layerStackingType, layerObject); // Remove from canvas
+      layerObject.close(); // Dispose of object
+      rcCanvas.repaint(); // Force a redraw of the canvas to delete the icon
+    }
+  }
+
 //----------------------------- INNER CLASSES -----------------------------
 
   // Handles all events of the viewer
@@ -2244,36 +2310,36 @@ public class AreaViewer extends ChildFrame
         if (lmiData instanceof AbstractLayerItem) {
           AbstractLayerItem item = (AbstractLayerItem)lmiData;
           showTable(item);
-        } else if (lmiData instanceof BubbData) {
-          BubbData bubbData = (BubbData)lmiData;
-          if (bubbData.getDataType() == BubbData.BubbDataType.ADD_ACTOR) {
+        } else if (lmiData instanceof ActorChangeData) {
+          ActorChangeData actorChangeData = (ActorChangeData)lmiData;
+          if (actorChangeData.getDataType() == ActorChangeData.ActorChangeType.ADD_ACTOR) {
             try {
-              Point visualPoint = (Point)bubbData.getData();
+              Point visualPoint = (Point)actorChangeData.getData();
               short physicalX = (short)(-0.5 + visualPoint.x / getZoomFactor());
               short physicalY = (short)(-0.5 + visualPoint.y / getZoomFactor());
               ByteBuffer actorBuffer = StreamUtils.getByteBuffer(272);
               actorBuffer.putShort(32, physicalX);
               actorBuffer.putShort(34, physicalY);
               Actor actor = new Actor(actorBuffer);
-              addActor(actor);
+              addStruct(actor, new LayerObjectAreActor(getCurrentAre(), actor), LayerStackingType.ACTOR);
             }
             catch (Exception e) {
               e.printStackTrace();
             }
-          } else if (bubbData.getDataType() == BubbData.BubbDataType.CLONE_ACTOR) {
-            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)bubbData.getData(); 
+          } else if (actorChangeData.getDataType() == ActorChangeData.ActorChangeType.CLONE_ACTOR) {
+            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)actorChangeData.getData(); 
             LayerObjectActor layerObjectActor = (LayerObjectActor)layerManager
               .getLayerObjectOf(abstractLayerItem);
             Actor actor = (Actor)layerObjectActor.getViewable();
             try {
               Actor newActor = (Actor)actor.clone();
-              addActor(newActor);
+              addStruct(newActor, new LayerObjectAreActor(getCurrentAre(), newActor), LayerStackingType.ACTOR);
             } catch (CloneNotSupportedException e) {
               e.printStackTrace();
             }
-          } else if (bubbData.getDataType() == BubbData.BubbDataType.REMOVE_ACTOR) {
-            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)bubbData.getData(); 
-            removeActorFromLayerItem(abstractLayerItem);
+          } else if (actorChangeData.getDataType() == ActorChangeData.ActorChangeType.REMOVE_ACTOR) {
+            AbstractLayerItem abstractLayerItem = (AbstractLayerItem)actorChangeData.getData(); 
+            removeStructFromLayerItem(abstractLayerItem, LayerStackingType.ACTOR);
           }
         }
       } else if (event.getSource() == tbAre) {
@@ -2346,7 +2412,10 @@ public class AreaViewer extends ChildFrame
             Actor actor = (Actor)layerObject.getViewable();
             ((DecNumber)actor.getField(1)).setValue(physicalX); // Current X coordinate 
             ((DecNumber)actor.getField(2)).setValue(physicalY); // Current Y coordinate
+            StructChangedListener structChangedListener = actor.getStructChangedListeners().get(layerObject);
+            structChangedListener.setSuppressed(true);
             actor.setStructChanged(true);
+            structChangedListener.setSuppressed(false);
           }
         }
       }
@@ -2666,17 +2735,17 @@ public class AreaViewer extends ChildFrame
     //--------------------- End Interface TreeExpansionListener ---------------------
   }
 
-  private static final class BubbData
+  private static final class ActorChangeData
   {
-    private BubbDataType dataType;
+    private ActorChangeType dataType;
     private Object data;
 
-    public BubbData(BubbDataType dataType, Object data) {
+    public ActorChangeData(ActorChangeType dataType, Object data) {
       this.dataType = dataType;
       this.data = data;
     }
 
-    public BubbDataType getDataType() {
+    public ActorChangeType getDataType() {
       return this.dataType;
     }
 
@@ -2684,9 +2753,35 @@ public class AreaViewer extends ChildFrame
       return this.data;
     }
 
-    public static enum BubbDataType
+    public static enum ActorChangeType
     {
       ADD_ACTOR, CLONE_ACTOR, REMOVE_ACTOR;
+    }
+  }
+
+  private class StructChangedListenerActorUpdater implements StructChangedListener
+  {
+    private LayerObjectActor layerObjectActor;
+    private boolean suppressed;
+
+    public StructChangedListenerActorUpdater(LayerObjectActor layerObjectActor) {
+      this.layerObjectActor = layerObjectActor;
+    }
+
+    @Override
+    public boolean structChanged() {
+      updateLayerObject(layerObjectActor, LayerStackingType.ACTOR);
+      return false;
+    }
+
+    @Override
+    public void setSuppressed(boolean value) {
+      suppressed = value;
+    }
+
+    @Override
+    public boolean getSuppressed() {
+      return suppressed;
     }
   }
 
